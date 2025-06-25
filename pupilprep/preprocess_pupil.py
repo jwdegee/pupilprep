@@ -1,6 +1,7 @@
 
 import numpy as np
 import scipy as sp
+import pandas as pd
 import mne
 
 def _double_gamma(params, x):
@@ -37,8 +38,8 @@ def _butter_highpass_filter(data, lowcut, fs, order=5):
 def interpolate_blinks(raw_et, buffer=0.2):
 
     # interpolate blinks round 1:
-    mne.preprocessing.eyetracking.interpolate_blinks(
-        raw_et, buffer=buffer, interpolate_gaze=True)
+    raw_et = mne.preprocessing.eyetracking.interpolate_blinks(
+                    raw_et, buffer=buffer, interpolate_gaze=True)
 
     # detect additional blinks:
     fs = raw_et.info['sfreq']
@@ -71,12 +72,12 @@ def interpolate_blinks(raw_et, buffer=0.2):
                                     ch_names=[raw_et.ch_names])
         
         # interpolate blinks round 2:
-        mne.preprocessing.eyetracking.interpolate_blinks(
+        raw_et = mne.preprocessing.eyetracking.interpolate_blinks(
             raw_et, buffer=buffer, interpolate_gaze=True)
     
     return raw_et
 
-def regress_blinks(df, events, interval=7, regress_blinks=True, regress_sacs=True, fs=1000):
+def regress_blinks(df, events, interval=7, regress_xy=True, regress_blinks=True, regress_sacs=True, fs=1000):
 
     ''' 
     This function results from Knapen et al. (2016). There, pupil responses to blinks were extracted 
@@ -128,6 +129,11 @@ def regress_blinks(df, events, interval=7, regress_blinks=True, regress_sacs=Tru
     # combine regressors:
     regs = []
     regs_titles = []
+    if regress_xy:
+        regs.append(df['xpos_int'].values)
+        regs_titles.append('x')
+        regs.append(df['ypos_int'].values)
+        regs_titles.append('y')
     if regress_blinks:
         regs.append(blink_reg_conv)
         regs_titles.append('blink')
@@ -166,31 +172,33 @@ def preprocess_pupil(filename, params):
 
     # load pupil data:
     raw_et = mne.io.read_raw_eyelink(filename)
-    raw_et_df = raw_et.to_data_frame()
+    df_raw = raw_et.to_data_frame()
+    df_raw.columns = [c.split('_')[0] for c in df_raw.columns]
     fs = raw_et.info['sfreq']
 
     # blink interpolation:
-    raw_et = interpolate_blinks(raw_et, buffer=0.2)
+    et = interpolate_blinks(raw_et, buffer=0.2)
 
     # get events:
-    events = raw_et.annotations.to_data_frame()
-    events['onset'] = raw_et.annotations.onset
+    events = et.annotations.to_data_frame()
+    events['onset'] = et.annotations.onset
 
     # get in right shape:
-    df = raw_et.to_data_frame()
-    pupil_column = [c for c in df.columns if 'pupil' in c][0]
-    df['pupil'] = raw_et_df[pupil_column]
-    ypos_column = [c for c in df.columns if 'ypos' in c][0]
-    df['ypos'] = raw_et_df[ypos_column]
-    xpos_column = [c for c in df.columns if 'xpos' in c][0]
-    df['xpos'] = raw_et_df[xpos_column]
-    df = df.rename({pupil_column: 'pupil_int'}, axis=1)
+    df = et.to_data_frame()
+    df.columns = [c.split('_')[0]+'_int' for c in df.columns]
+    df = df.loc[:,[c for c in df.columns if not 'time' in c]]
+    df = pd.concat((df_raw, df), axis=1)
 
     # temporal filter:
-    temporal_filter(df=df, measure='pupil_int', hp=params['hp'], lp=params['lp'], order=params['order'], fs=fs)
+    temporal_filter(df=df, measure='pupil_int', 
+                    hp=params['hp'], lp=params['lp'], 
+                    order=params['order'], fs=fs)
 
     # regress out pupil responses to blinks and saccades:
-    regress_blinks(df=df, events=events, interval=7, regress_blinks=True, regress_sacs=True, fs=fs)
+    regress_blinks(df=df, events=events, interval=7, 
+                   regress_xy=params['regress_xy'], 
+                   regress_blinks=params['regress_blinks'],
+                   regress_sacs=params['regress_sacs'], fs=fs)
 
     # percent signal change:
     psc(df=df, measure='pupil_int_lp_clean')
