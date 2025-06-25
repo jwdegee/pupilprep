@@ -77,7 +77,28 @@ def interpolate_blinks(raw_et, buffer=0.2):
     
     return raw_et
 
-def regress_blinks(df, events, interval=7, regress_xy=True, regress_blinks=True, regress_sacs=True, fs=1000):
+def regress_xy(df):
+
+    # combine regressors:
+    regs = []
+    regs_titles = []
+    regs.append(df['xpos_int'].values)
+    regs_titles.append('x')
+    regs.append(df['ypos_int'].values)
+    regs_titles.append('y')
+    print([r.shape for r in regs])
+
+    # GLM:
+    design_matrix = np.matrix(np.vstack([reg for reg in regs])).T
+    betas = np.array(((design_matrix.T * design_matrix).I * design_matrix.T) * np.matrix(df['pupil_int'].values).T).ravel()
+    explained = np.sum(np.vstack([betas[i]*regs[i] for i in range(len(betas))]), axis=0)
+    rsq = sp.stats.pearsonr(df['pupil_int'].values, explained)[0]**2
+    print('explained variance = {}%'.format(round(rsq*100,2)))
+
+    # cleaned-up time series:
+    df['pupil_int'] = (df['pupil_int'] - explained) + df['pupil_int'].mean()
+
+def regress_blinks(df, events, interval=7, regress_blinks=True, regress_sacs=True, fs=1000):
 
     ''' 
     This function results from Knapen et al. (2016). There, pupil responses to blinks were extracted 
@@ -129,11 +150,6 @@ def regress_blinks(df, events, interval=7, regress_xy=True, regress_blinks=True,
     # combine regressors:
     regs = []
     regs_titles = []
-    if regress_xy:
-        regs.append(df['xpos_int'].values)
-        regs_titles.append('x')
-        regs.append(df['ypos_int'].values)
-        regs_titles.append('y')
     if regress_blinks:
         regs.append(blink_reg_conv)
         regs_titles.append('blink')
@@ -148,7 +164,7 @@ def regress_blinks(df, events, interval=7, regress_xy=True, regress_blinks=True,
     explained = np.sum(np.vstack([betas[i]*regs[i] for i in range(len(betas))]), axis=0)
     rsq = sp.stats.pearsonr(df['pupil_int_bp'].values, explained)[0]**2
     print('explained variance = {}%'.format(round(rsq*100,2)))
-    
+
     # cleaned-up time series:
     df['pupil_int_bp_clean'] = df['pupil_int_bp'] - explained
     df['pupil_int_lp_clean'] = df['pupil_int_bp_clean'] + (df['pupil_int_lp']-df['pupil_int_bp'])
@@ -189,14 +205,23 @@ def preprocess_pupil(filename, params):
     df = df.loc[:,[c for c in df.columns if not 'time' in c]]
     df = pd.concat((df_raw, df), axis=1)
 
+    # don't start or end with NaN
+    df.loc[df['pupil_int']==0, 'pupil_int'] = np.NaN
+    columns = ['pupil_int', 'xpos_int', 'ypos_int']
+    df[columns] = df[columns].ffill(axis=0)
+    df[columns] = df[columns].bfill(axis=0)
+    
+    # regress xy:
+    if params['regress_xy']:
+        regress_xy(df=df)
+    
     # temporal filter:
     temporal_filter(df=df, measure='pupil_int', 
                     hp=params['hp'], lp=params['lp'], 
                     order=params['order'], fs=fs)
-
+    
     # regress out pupil responses to blinks and saccades:
-    regress_blinks(df=df, events=events, interval=7, 
-                   regress_xy=params['regress_xy'], 
+    regress_blinks(df=df, events=events, interval=7,
                    regress_blinks=params['regress_blinks'],
                    regress_sacs=params['regress_sacs'], fs=fs)
 
