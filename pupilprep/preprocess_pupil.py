@@ -206,7 +206,7 @@ def preprocess_pupil(filename, params):
     df = pd.concat((df_raw, df), axis=1)
 
     # don't start or end with NaN
-    df.loc[df['pupil_int']==0, 'pupil_int'] = np.NaN
+    df.loc[df['pupil_int']==0, 'pupil_int'] = np.nan
     columns = ['pupil_int', 'xpos_int', 'ypos_int']
     df[columns] = df[columns].ffill(axis=0)
     df[columns] = df[columns].bfill(axis=0)
