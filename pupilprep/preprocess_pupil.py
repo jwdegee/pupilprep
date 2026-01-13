@@ -401,7 +401,7 @@ def slope(df, measure, hp=2.0, fs=15, order=3):
     df['{}_slope'.format(measure)] = slope
 
 def preprocess_pupil(filename, params):
-
+    
     # load pupil data:
     raw_et = mne.io.read_raw_eyelink(filename)
     df_raw = raw_et.to_data_frame()
