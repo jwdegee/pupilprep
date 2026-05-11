@@ -492,3 +492,99 @@ def preprocess_pupil(filename, params):
         sns.despine()
     
     return df, events, fs, [fig1, fig2]
+
+def preprocess_pupillabs(df, df_blinks, params):
+    
+    # load pupil data:
+    fs = int(1/df['time'].diff().median())
+
+    # interpolate blinks:
+    for measure in ['pupil_left', 'pupil_right', 'eyelid_left', 'eyelid_right']:
+        df['{}_int'.format(measure)] = df[measure]
+        for i in range(df_blinks.shape[0]):
+            blink_start = df_blinks['time_start'].iloc[i] - 0.1
+            blink_end = df_blinks['time_end'].iloc[i] + 0.1
+            ind = (df['time']>blink_start)&(df['time']<blink_end)
+            df.loc[ind,'{}_int'.format(measure)] = np.linspace(df.loc[ind,measure].iloc[0], 
+                                                    df.loc[ind,measure].iloc[-1], sum(ind))
+
+    # # custom blink detection based on pupil slope:
+    # blink_detection_slope = True
+    # if blink_detection_slope:
+    #     pupil = df['pupil_left_int'].values
+    #     onsets_slope, offsets_slope = detect_blinks_pupil_slope(pupil, fs, z_threshold=params['slope_z_threshold'])
+    #     if len(onsets_slope) > 0:
+    #         et = set_custon_blink_annotations(et, onsets_slope, offsets_slope)
+
+    # regress xy:
+    if params['regress_xy']:
+        regress_xy(df=df)
+    
+    # temporal filter:
+    for measure in ['pupil_left_int', 'pupil_right_int', 'eyelid_left_int', 'eyelid_right_int']:
+        temporal_filter(df=df, measure=measure, 
+                        hp=params['hp'], lp=params['lp'], 
+                        order=params['order'], fs=fs)
+
+    # # regress out pupil responses to blinks and saccades:
+    # regress_blinks(df=df, events=events, interval=7,
+    #                regress_blinks=params['regress_blinks'],
+    #                regress_sacs=params['regress_sacs'], fs=fs)
+
+    # percent signal change:
+    # psc(df=df, measure='pupil_int_lp_clean')
+    for measure in ['pupil_left_int', 'pupil_right_int', 'eyelid_left_int', 'eyelid_right_int',
+                    'pupil_left_int_lp', 'pupil_right_int_lp', 'eyelid_left_int_lp', 'eyelid_right_int_lp']:
+        psc(df=df, measure=measure)
+
+    # snr:
+    left_snr = df['pupil_left_int'].mean()/df['pupil_left_int'].std()
+    right_snr = df['pupil_right_int'].mean()/df['pupil_right_int'].std()
+
+    # figures:
+    fig1 = plt.figure(figsize=(12,4))
+
+    ax = fig1.add_subplot(221)
+    plt.plot(df['time'], df['pupil_left'])
+    plt.plot(df['time'], df['pupil_left_int'])
+    plt.plot(df['time'], df['pupil_left_int_lp'])
+    plt.title('SNR={}'.format(round(left_snr, 2)))
+    for i in range(df_blinks.shape[0]):
+        plt.axvspan(df_blinks['time_start'].iloc[i], df_blinks['time_end'].iloc[i], color='r', alpha=0.2)
+    ax = fig1.add_subplot(222)
+    plt.plot(df['time'], df['pupil_left_int_lp_psc'])
+    ax = fig1.add_subplot(223)
+    plt.plot(df['time'], df['eyelid_left'])
+    plt.plot(df['time'], df['eyelid_left_int'])
+    plt.plot(df['time'], df['eyelid_left_int_lp'])
+    # plt.title('SNR={}'.format(round(left_snr, 2)))
+    for i in range(df_blinks.shape[0]):
+        plt.axvspan(df_blinks['time_start'].iloc[i], df_blinks['time_end'].iloc[i], color='r', alpha=0.2)
+    ax = fig1.add_subplot(224)
+    plt.plot(df['time'], df['eyelid_left_int_lp_psc'])
+    plt.tight_layout()
+    sns.despine()
+
+    fig2 = plt.figure(figsize=(12,4))
+    ax = fig2.add_subplot(221)
+    plt.plot(df['time'], df['pupil_right'])
+    plt.plot(df['time'], df['pupil_right_int'])
+    plt.plot(df['time'], df['pupil_right_int_lp'])
+    plt.title('SNR={}'.format(round(right_snr, 2)))
+    for i in range(df_blinks.shape[0]):
+        plt.axvspan(df_blinks['time_start'].iloc[i], df_blinks['time_end'].iloc[i], color='r', alpha=0.2)
+    ax = fig2.add_subplot(222)
+    plt.plot(df['time'], df['pupil_right_int_lp_psc'])
+    ax = fig2.add_subplot(223)
+    plt.plot(df['time'], df['eyelid_right'])
+    plt.plot(df['time'], df['eyelid_right_int'])
+    plt.plot(df['time'], df['eyelid_right_int_lp'])
+    # plt.title('SNR={}'.format(round(left_snr, 2)))
+    for i in range(df_blinks.shape[0]):
+        plt.axvspan(df_blinks['time_start'].iloc[i], df_blinks['time_end'].iloc[i], color='r', alpha=0.2)
+    ax = fig2.add_subplot(224)
+    plt.plot(df['time'], df['eyelid_right_int_lp_psc'])
+    plt.tight_layout()
+    sns.despine()
+    
+    return df, fs, [fig1, fig2]
